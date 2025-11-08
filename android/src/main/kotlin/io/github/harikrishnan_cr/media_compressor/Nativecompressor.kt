@@ -4,22 +4,33 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.media.MediaCodec
-import android.media.MediaCodecInfo
-import android.media.MediaExtractor
-import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
-import android.media.MediaMuxer
+import android.net.Uri
 import androidx.exifinterface.media.ExifInterface
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.effect.ScaleAndRotateTransformation
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.Effects
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.ByteBuffer
 import java.util.UUID
+import android.util.Log
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+import androidx.media3.transformer.VideoEncoderSettings
 
 data class CompressionError(
     val code: String,
@@ -29,8 +40,12 @@ data class CompressionError(
 
 class NativeCompressor(private val context: Context) {
 
+    companion object {
+        private const val TAG = "NativeCompressor"
+    }
+
     // ============================================================================
-    // IMAGE COMPRESSION
+    // IMAGE COMPRESSION CODE
     // ============================================================================
 
     fun compressImage(
@@ -64,25 +79,21 @@ class NativeCompressor(private val context: Context) {
         maxWidth: Int?,
         maxHeight: Int?
     ): String = withContext(Dispatchers.IO) {
-        // Check if file exists
         val inputFile = File(imagePath)
         if (!inputFile.exists()) {
             throw IOException("Image file not found at path: $imagePath")
         }
 
-        // Decode bitmap with orientation fix
         val bitmap = decodeBitmapWithOrientation(imagePath)
             ?: throw IOException("Failed to decode image from path: $imagePath")
 
         try {
-            // Resize if dimensions are provided
             val resizedBitmap = if (maxWidth != null && maxHeight != null) {
                 resizeBitmap(bitmap, maxWidth, maxHeight)
             } else {
                 bitmap
             }
 
-            // Compress and save
             val outputFile = createOutputFile("jpg")
             FileOutputStream(outputFile).use { outputStream ->
                 val compressed = resizedBitmap.compress(
@@ -96,7 +107,6 @@ class NativeCompressor(private val context: Context) {
                 }
             }
 
-            // Clean up bitmaps
             if (resizedBitmap != bitmap) {
                 resizedBitmap.recycle()
             }
@@ -110,7 +120,6 @@ class NativeCompressor(private val context: Context) {
     }
 
     private fun decodeBitmapWithOrientation(imagePath: String): Bitmap? {
-        // First, decode bitmap
         val options = BitmapFactory.Options().apply {
             inJustDecodeBounds = false
             inPreferredConfig = Bitmap.Config.RGB_565
@@ -118,7 +127,6 @@ class NativeCompressor(private val context: Context) {
         
         val bitmap = BitmapFactory.decodeFile(imagePath, options) ?: return null
 
-        // Get EXIF orientation
         val exif = try {
             ExifInterface(imagePath)
         } catch (e: IOException) {
@@ -130,7 +138,6 @@ class NativeCompressor(private val context: Context) {
             ExifInterface.ORIENTATION_NORMAL
         )
 
-        // Return bitmap with corrected orientation
         return rotateBitmap(bitmap, orientation)
     }
 
@@ -156,13 +163,7 @@ class NativeCompressor(private val context: Context) {
 
         return try {
             val rotatedBitmap = Bitmap.createBitmap(
-                bitmap,
-                0,
-                0,
-                bitmap.width,
-                bitmap.height,
-                matrix,
-                true
+                bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
             )
             if (rotatedBitmap != bitmap) {
                 bitmap.recycle()
@@ -178,21 +179,17 @@ class NativeCompressor(private val context: Context) {
         val width = bitmap.width
         val height = bitmap.height
 
-        // Calculate scaling ratio
         val widthRatio = maxWidth.toFloat() / width
         val heightRatio = maxHeight.toFloat() / height
         val ratio = minOf(widthRatio, heightRatio, 1f)
 
-        // If image is already smaller, return original
         if (ratio >= 1f) {
             return bitmap
         }
 
-        // Calculate new dimensions
         val newWidth = (width * ratio).toInt()
         val newHeight = (height * ratio).toInt()
 
-        // Create resized bitmap
         return try {
             Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
         } catch (e: OutOfMemoryError) {
@@ -202,21 +199,24 @@ class NativeCompressor(private val context: Context) {
     }
 
     // ============================================================================
-    // VIDEO COMPRESSION
+    // REAL VIDEO COMPRESSION using AndroidX Media3 Transformer
     // ============================================================================
 
     fun compressVideo(
         videoPath: String,
         quality: String,
-        callback: (String?, CompressionError?) -> Unit
+        callback: (String?, CompressionError?) -> Unit,
+        progressCallback: ((Float) -> Unit)? = null
     ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = compressVideoInternal(videoPath, quality)
+                Log.d(TAG, "Starting EXTREME video compression with Media3 Transformer")
+                val result = compressVideoInternal(videoPath, quality, progressCallback)
                 withContext(Dispatchers.Main) {
                     callback(result, null)
                 }
             } catch (e: Exception) {
+                Log.e(TAG, "Video compression error", e)
                 withContext(Dispatchers.Main) {
                     callback(null, CompressionError(
                         code = "COMPRESSION_ERROR",
@@ -230,159 +230,220 @@ class NativeCompressor(private val context: Context) {
 
     private suspend fun compressVideoInternal(
         videoPath: String,
-        quality: String
+        quality: String,
+        progressCallback: ((Float) -> Unit)? = null
     ): String = withContext(Dispatchers.IO) {
         val inputFile = File(videoPath)
         if (!inputFile.exists()) {
             throw IOException("Video file not found at path: $videoPath")
         }
 
-        // Get video metadata
-        val retriever = MediaMetadataRetriever()
+        val outputFile = createOutputFile("mp4")
+        
+        Log.d(TAG, "Input: $videoPath")
+        Log.d(TAG, "Output: ${outputFile.absolutePath}")
+        Log.d(TAG, "Quality: $quality")
+
         try {
-            retriever.setDataSource(videoPath)
-            
-            val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 1920
-            val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 1080
-            val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
-
-            // Determine compression parameters based on quality
-            val (targetBitrate, targetHeight) = when (quality.lowercase()) {
-                "low" -> Pair(500_000, 480)      // 500 Kbps, 480p
-                "medium" -> Pair(1_000_000, 720)  // 1 Mbps, 720p
-                "high" -> Pair(2_000_000, 1080)   // 2 Mbps, 1080p
-                else -> Pair(1_000_000, 720)
+            // Determine compression settings based on quality
+            val (targetHeight, videoBitrate) = when (quality.lowercase()) {
+                "low" -> Pair(480, 500_000)      // 480p @ 500 Kbps - EXTREME compression
+                "medium" -> Pair(720, 1_500_000)  // 720p @ 1.5 Mbps - High compression
+                "high" -> Pair(1080, 3_000_000)  // 1080p @ 3 Mbps - Moderate compression
+                else -> Pair(720, 1_500_000)
             }
 
-            // Calculate output dimensions maintaining aspect ratio
-            val aspectRatio = width.toFloat() / height.toFloat()
-            val (outputWidth, outputHeight) = if (height > targetHeight) {
-                val newHeight = targetHeight
-                val newWidth = (newHeight * aspectRatio).toInt()
-                // Make dimensions divisible by 2 (required by most codecs)
-                Pair((newWidth / 2) * 2, (newHeight / 2) * 2)
-            } else {
-                Pair((width / 2) * 2, (height / 2) * 2)
-            }
+            Log.d(TAG, "Target: ${targetHeight}p @ ${videoBitrate / 1000} Kbps")
 
-            val outputFile = createOutputFile("mp4")
-            
-            try {
-                // Simple remux approach for Android
-                remuxVideo(
-                    inputPath = videoPath,
-                    outputPath = outputFile.absolutePath,
-                    targetBitrate = targetBitrate
-                )
-                
-                outputFile.absolutePath
-            } catch (e: Exception) {
-                outputFile.delete()
-                throw e
-            }
-        } finally {
-            retriever.release()
+            // Use Media3 Transformer for actual compression
+            compressWithTransformer(
+                inputPath = videoPath,
+                outputPath = outputFile.absolutePath,
+                targetHeight = targetHeight,
+                targetBitrate = videoBitrate,
+                progressCallback = progressCallback
+            )
+
+            val inputSize = inputFile.length()
+            val outputSize = outputFile.length()
+            val reduction = ((1 - outputSize.toFloat() / inputSize) * 100).toInt()
+
+            Log.d(TAG, "✅ Compression complete!")
+            Log.d(TAG, "Input: ${inputSize / 1024} KB")
+            Log.d(TAG, "Output: ${outputSize / 1024} KB")
+            Log.d(TAG, "Reduction: $reduction%")
+
+            outputFile.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "Compression failed", e)
+            outputFile.delete()
+            throw e
         }
     }
 
     /**
-     * Simplified video compression using MediaExtractor/MediaMuxer
-     * This approach remuxes the video without full re-encoding for better performance
+     * Real video compression using AndroidX Media3 Transformer
+     * This re-encodes the video with lower resolution and bitrate
+     * 
+     * IMPORTANT: All Transformer operations must run on the Main thread
      */
-    private fun remuxVideo(
+    @UnstableApi
+    private suspend fun compressWithTransformer(
         inputPath: String,
         outputPath: String,
-        targetBitrate: Int
-    ) {
-        val extractor = MediaExtractor()
-        var muxer: MediaMuxer? = null
-
-        try {
-            extractor.setDataSource(inputPath)
-
-            // Find video and audio tracks
-            var videoTrackIndex = -1
-            var audioTrackIndex = -1
-            val trackCount = extractor.trackCount
-
-            for (i in 0 until trackCount) {
-                val format = extractor.getTrackFormat(i)
-                val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+        targetHeight: Int,
+        targetBitrate: Int,
+        progressCallback: ((Float) -> Unit)? = null
+    ) = suspendCancellableCoroutine<Unit> { continuation ->
+        
+        // Move Transformer operations to Main thread
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val mediaItem = MediaItem.fromUri(Uri.fromFile(File(inputPath)))
                 
-                when {
-                    mime.startsWith("video/") && videoTrackIndex < 0 -> {
-                        videoTrackIndex = i
-                    }
-                    mime.startsWith("audio/") && audioTrackIndex < 0 -> {
-                        audioTrackIndex = i
+                // Get video resolution and duration
+                val mediaMetadataRetriever = MediaMetadataRetriever()
+                mediaMetadataRetriever.setDataSource(inputPath)
+                
+                val originalWidth = mediaMetadataRetriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH
+                )?.toIntOrNull() ?: 1920
+                
+                val originalHeight = mediaMetadataRetriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
+                )?.toIntOrNull() ?: 1080
+                
+                val durationMs = mediaMetadataRetriever.extractMetadata(
+                    MediaMetadataRetriever.METADATA_KEY_DURATION
+                )?.toLongOrNull() ?: 0L
+                
+                mediaMetadataRetriever.release()
+                
+                // Calculate scale factor
+                val scaleFactor = if (originalHeight > targetHeight) {
+                    targetHeight.toFloat() / originalHeight.toFloat()
+                } else {
+                    1f
+                }
+                
+                val newWidth = (originalWidth * scaleFactor).toInt()
+                val newHeight = (originalHeight * scaleFactor).toInt()
+                
+                Log.d(TAG, "Original: ${originalWidth}x${originalHeight}")
+                Log.d(TAG, "Target: ${newWidth}x${newHeight} (scale: $scaleFactor)")
+                Log.d(TAG, "Duration: ${durationMs}ms")
+                
+                // Create scaling effect
+                val scaleEffect = ScaleAndRotateTransformation.Builder()
+                    .setScale(scaleFactor, scaleFactor)
+                    .setRotationDegrees(0f)
+                    .build()
+                
+                val effects = Effects(
+                    emptyList(),
+                    listOf(scaleEffect)
+                )
+                
+                val editedMediaItem = EditedMediaItem.Builder(mediaItem)
+                    .setRemoveAudio(false)
+                    .setRemoveVideo(false)
+                    .setEffects(effects)
+                    .build()
+
+val videoEncoderSettings = VideoEncoderSettings.Builder()
+    .setBitrate(targetBitrate)
+    .build()
+
+val encoderFactory = DefaultEncoderFactory.Builder(context)
+    .setEnableFallback(true)
+    .setRequestedVideoEncoderSettings(videoEncoderSettings) // ✅ CORRECT
+    .build()
+
+                
+                Log.d(TAG, "Encoder configured with bitrate: ${targetBitrate / 1000} Kbps")
+
+                // Build transformer
+                val transformer = Transformer.Builder(context)
+                    .setVideoMimeType(MimeTypes.VIDEO_H264)
+                    .setEncoderFactory(encoderFactory)
+                    .addListener(object : Transformer.Listener {
+                        override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                            Log.d(TAG, "✅ Transformer completed")
+                            Log.d(TAG, "Duration: ${exportResult.durationMs}ms")
+                            Log.d(TAG, "Size: ${exportResult.fileSizeBytes / 1024}KB")
+                            
+                            progressCallback?.invoke(1.0f) // 100% complete
+                            
+                            if (continuation.isActive) {
+                                continuation.resume(Unit)
+                            }
+                        }
+
+                        override fun onError(
+                            composition: Composition,
+                            exportResult: ExportResult,
+                            exportException: ExportException
+                        ) {
+                            Log.e(TAG, "❌ Transformer error", exportException)
+                            
+                            if (continuation.isActive) {
+                                continuation.resumeWithException(
+                                    IOException("Compression failed: ${exportException.message}", exportException)
+                                )
+                            }
+                        }
+                    })
+                    .build()
+
+                // Progress tracking using a coroutine (polling approach since Transformer doesn't provide progress)
+                if (progressCallback != null && durationMs > 0) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val startTime = System.currentTimeMillis()
+                        while (continuation.isActive) {
+                            try {
+                                val outputFile = File(outputPath)
+                                if (outputFile.exists()) {
+                                    // Estimate progress based on file size growth
+                                    // This is approximate but gives users feedback
+                                    val elapsedTime = System.currentTimeMillis() - startTime
+                                    val estimatedProgress = (elapsedTime.toFloat() / durationMs).coerceIn(0f, 0.95f)
+                                    
+                                    withContext(Dispatchers.Main) {
+                                        progressCallback.invoke(estimatedProgress)
+                                    }
+                                }
+                                kotlinx.coroutines.delay(500) // Update every 500ms
+                            } catch (e: Exception) {
+                                break
+                            }
+                        }
                     }
                 }
+
+                // Start transformation
+                transformer.start(editedMediaItem, outputPath)
+                
+                Log.d(TAG, "🎬 Transformer started")
+
+                // Handle cancellation
+                continuation.invokeOnCancellation {
+                    Log.d(TAG, "Compression cancelled")
+                    CoroutineScope(Dispatchers.Main).launch {
+                        try {
+                            transformer.cancel()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error cancelling", e)
+                        }
+                    }
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start transformer", e)
+                if (continuation.isActive) {
+                    continuation.resumeWithException(e)
+                }
             }
-
-            if (videoTrackIndex < 0) {
-                throw IOException("No video track found in input file")
-            }
-
-            // Create muxer
-            muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-
-            // Add video track
-            val videoFormat = extractor.getTrackFormat(videoTrackIndex)
-            val videoOutputTrack = muxer.addTrack(videoFormat)
-
-            // Add audio track if exists
-            val audioOutputTrack = if (audioTrackIndex >= 0) {
-                val audioFormat = extractor.getTrackFormat(audioTrackIndex)
-                muxer.addTrack(audioFormat)
-            } else -1
-
-            // Start muxer
-            muxer.start()
-
-            // Copy video track
-            copyTrack(extractor, muxer, videoTrackIndex, videoOutputTrack)
-
-            // Copy audio track if exists
-            if (audioTrackIndex >= 0) {
-                copyTrack(extractor, muxer, audioTrackIndex, audioOutputTrack)
-            }
-
-        } finally {
-            muxer?.stop()
-            muxer?.release()
-            extractor.release()
         }
-    }
-
-    private fun copyTrack(
-        extractor: MediaExtractor,
-        muxer: MediaMuxer,
-        inputTrack: Int,
-        outputTrack: Int
-    ) {
-        extractor.selectTrack(inputTrack)
-        extractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
-        
-        val bufferInfo = MediaCodec.BufferInfo()
-        val buffer = ByteBuffer.allocate(1024 * 1024) // 1MB buffer
-        
-        while (true) {
-            val sampleSize = extractor.readSampleData(buffer, 0)
-            
-            if (sampleSize < 0) {
-                break
-            }
-            
-            bufferInfo.offset = 0
-            bufferInfo.size = sampleSize
-            bufferInfo.presentationTimeUs = extractor.sampleTime
-            bufferInfo.flags = extractor.sampleFlags
-            
-            muxer.writeSampleData(outputTrack, buffer, bufferInfo)
-            extractor.advance()
-        }
-        
-        extractor.unselectTrack(inputTrack)
     }
 
     // ============================================================================

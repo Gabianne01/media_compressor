@@ -3,15 +3,20 @@ package io.github.harikrishnan_cr.media_compressor
 import android.content.Context
 import androidx.annotation.NonNull
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import android.os.Handler
+import android.os.Looper
 
 class MediaCompressorPlugin : FlutterPlugin, MethodCallHandler {
     private lateinit var channel: MethodChannel
+    private lateinit var eventChannel: EventChannel
     private lateinit var context: Context
     private lateinit var compressor: NativeCompressor
+    private var progressSink: EventChannel.EventSink? = null
 
     override fun onAttachedToEngine(@NonNull flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         context = flutterPluginBinding.applicationContext
@@ -19,6 +24,18 @@ class MediaCompressorPlugin : FlutterPlugin, MethodCallHandler {
         
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "native_compressor")
         channel.setMethodCallHandler(this)
+        
+        // Event channel for progress update
+        eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "native_compressor/progress")
+        eventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                progressSink = events
+            }
+
+            override fun onCancel(arguments: Any?) {
+                progressSink = null
+            }
+        })
     }
 
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
@@ -79,16 +96,31 @@ class MediaCompressorPlugin : FlutterPlugin, MethodCallHandler {
             return
         }
 
-        compressor.compressVideo(path, quality) { compressedPath, error ->
-            if (error != null) {
-                result.error(error.code, error.message, error.details)
-            } else {
-                result.success(compressedPath)
+        // Progress callback that sends updates to Flutter via EventChannel
+        val progressCallback: (Float) -> Unit = { progress ->
+            Handler(Looper.getMainLooper()).post {
+                progressSink?.success(mapOf(
+                    "progress" to progress,
+                    "percentage" to (progress * 100).toInt()
+                ))
             }
         }
+
+        compressor.compressVideo(path, quality, 
+            callback = { compressedPath, error ->
+                if (error != null) {
+                    result.error(error.code, error.message, error.details)
+                } else {
+                    result.success(compressedPath)
+                }
+            },
+            progressCallback = progressCallback
+        )
     }
 
     override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
+        eventChannel.setStreamHandler(null)
+        progressSink = null
     }
 }

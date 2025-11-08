@@ -1,4 +1,4 @@
-## 1.0.0
+## 0.0.1
 
 * Initial pre-release
 * Basic image compression with quality control
