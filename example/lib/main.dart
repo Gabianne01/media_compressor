@@ -1,9 +1,12 @@
 import 'dart:io';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:media_compressor/media_compressor.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:media_compressor_example/video_payer_example.dart';
 
 void main() {
+    WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -13,10 +16,15 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Media Compressor Demo',
+      title: 'Media Compressor',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        primarySwatch: Colors.blue,
         useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.light,
+        ),
+      
       ),
       home: const MediaCompressorDemo(),
     );
@@ -30,7 +38,8 @@ class MediaCompressorDemo extends StatefulWidget {
   State<MediaCompressorDemo> createState() => _MediaCompressorDemoState();
 }
 
-class _MediaCompressorDemoState extends State<MediaCompressorDemo> with SingleTickerProviderStateMixin {
+class _MediaCompressorDemoState extends State<MediaCompressorDemo>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final ImagePicker _picker = ImagePicker();
 
@@ -49,22 +58,118 @@ class _MediaCompressorDemoState extends State<MediaCompressorDemo> with SingleTi
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Media Compressor Demo'),
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(icon: Icon(Icons.image), text: 'Images'),
-            Tab(icon: Icon(Icons.video_library), text: 'Videos'),
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Custom Header
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Theme.of(context).colorScheme.primary,
+                    Theme.of(context).colorScheme.secondary,
+                  ],
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.compress,
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Media Compressor',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              'Reduce file size without losing quality',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  // Custom Tab Bar
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: TabBar(
+                      controller: _tabController,
+                      indicator: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      labelColor: Theme.of(context).colorScheme.primary,
+                      unselectedLabelColor: Colors.white,
+                      dividerColor: Colors.transparent,
+                      tabs: const [
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.image),
+                              SizedBox(width: 8),
+                              Text('Images'),
+                            ],
+                          ),
+                        ),
+                        Tab(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.video_library),
+                              SizedBox(width: 8),
+                              Text('Videos'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // Content
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  ImageCompressorTab(picker: _picker),
+                  VideoCompressorTab(picker: _picker),
+                ],
+              ),
+            ),
           ],
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          ImageCompressorTab(picker: _picker),
-          VideoCompressorTab(picker: _picker),
-        ],
       ),
     );
   }
@@ -91,19 +196,23 @@ class _ImageCompressorTabState extends State<ImageCompressorTab> {
   int _maxHeight = 1080;
   bool _isCompressing = false;
   String? _statusMessage;
-  CompressionResult? _lastResult;
+  int? _originalSize;
+  int? _compressedSize;
 
   Future<void> _pickImage(ImageSource source) async {
     try {
       final XFile? image = await widget.picker.pickImage(source: source);
-
       if (image == null) return;
 
+      final file = File(image.path);
+      final size = await file.length();
+
       setState(() {
-        _originalImage = File(image.path);
+        _originalImage = file;
+        _originalSize = size;
         _compressedImage = null;
+        _compressedSize = null;
         _statusMessage = null;
-        _lastResult = null;
       });
 
       await _compressImage();
@@ -127,26 +236,17 @@ class _ImageCompressorTabState extends State<ImageCompressorTab> {
           quality: _quality,
           maxWidth: _maxWidth,
           maxHeight: _maxHeight,
-    
         ),
       );
 
       if (result.isSuccess) {
-        final originalFile = File(_originalImage!.path);
         final compressedFile = File(result.path!);
-
-        final originalSize = await originalFile.length();
         final compressedSize = await compressedFile.length();
-        final savedPercentage = ((1 - (compressedSize / originalSize)) * 100).toStringAsFixed(1);
 
         setState(() {
           _compressedImage = compressedFile;
-          _lastResult = result;
-          _statusMessage = 'Compression Successful!\n'
-              'Original: ${_formatBytes(originalSize)}\n'
-              'Compressed: ${_formatBytes(compressedSize)}\n'
-              'Saved: $savedPercentage%\n';
-
+          _compressedSize = compressedSize;
+          _statusMessage = 'Compression complete!';
           _isCompressing = false;
         });
       } else {
@@ -165,7 +265,9 @@ class _ImageCompressorTabState extends State<ImageCompressorTab> {
 
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
     return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
   }
 
@@ -174,127 +276,162 @@ class _ImageCompressorTabState extends State<ImageCompressorTab> {
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final savedPercentage = _originalSize != null && _compressedSize != null
+        ? ((1 - (_compressedSize! / _originalSize!)) * 100).toInt()
+        : 0;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Source Selection Buttons
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Select Image Source',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isCompressing ? null : () => _pickImage(ImageSource.camera),
-                          icon: const Icon(Icons.camera_alt),
-                          label: const Text('Camera'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.all(16),
-                          ),
+          // Pick Image Buttons
+          Row(
+            children: [
+              Expanded(
+                child: _buildActionButton(
+                  icon: Icons.camera_alt,
+                  label: 'Camera',
+                  onPressed:
+                      _isCompressing ? null : () => _pickImage(ImageSource.camera),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildActionButton(
+                  icon: Icons.photo_library,
+                  label: 'Gallery',
+                  onPressed:
+                      _isCompressing ? null : () => _pickImage(ImageSource.gallery),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 20),
+
+          // Stats Card
+          if (_originalSize != null || _compressedSize != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildStatItem(
+                          'Original',
+                          _formatBytes(_originalSize ?? 0),
+                          Icons.image_outlined,
+                          Colors.blue,
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isCompressing ? null : () => _pickImage(ImageSource.gallery),
-                          icon: const Icon(Icons.photo_library),
-                          label: const Text('Gallery'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.all(16),
+                        Container(
+                          width: 1,
+                          height: 40,
+                          color: Colors.grey.shade300,
+                        ),
+                        _buildStatItem(
+                          'Compressed',
+                          _compressedSize != null
+                              ? _formatBytes(_compressedSize!)
+                              : '-',
+                          Icons.compress,
+                          Colors.green,
+                        ),
+                        Container(
+                          width: 1,
+                          height: 40,
+                          color: Colors.grey.shade300,
+                        ),
+                        _buildStatItem(
+                          'Saved',
+                          _compressedSize != null ? '$savedPercentage%' : '-',
+                          Icons.trending_down,
+                          Colors.orange,
+                        ),
+                      ],
+                    ),
+                    if (_compressedSize != null) ...[
+                      const SizedBox(height: 16),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: 1 - (_compressedSize! / _originalSize!),
+                          minHeight: 8,
+                          backgroundColor: Colors.grey.shade200,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            savedPercentage > 50 ? Colors.green : Colors.orange,
                           ),
                         ),
                       ),
                     ],
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
+            const SizedBox(height: 20),
+          ],
 
-          const SizedBox(height: 16),
-
-          // Compression Settings
+          // Settings Card
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
                     'Compression Settings',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  _buildSlider(
+                    'Quality',
+                    _quality,
+                    0,
+                    100,
+                    '%',
+                    Icons.high_quality,
+                    (value) => setState(() => _quality = value.toInt()),
+                    () {
+                      if (_originalImage != null) _compressImage();
+                    },
                   ),
                   const SizedBox(height: 16),
-                  Text('Quality: $_quality%'),
-                  Slider(
-                    value: _quality.toDouble(),
-                    min: 0,
-                    max: 100,
-                    divisions: 20,
-                    label: _quality.toString(),
-                    onChanged: (value) {
-                      setState(() {
-                        _quality = value.toInt();
-                      });
-                    },
-                    onChangeEnd: (value) {
-                      if (_originalImage != null) {
-                        _compressImage();
-                      }
+                  _buildSlider(
+                    'Max Width',
+                    _maxWidth,
+                    480,
+                    3840,
+                    'px',
+                    Icons.width_normal,
+                    (value) => setState(() => _maxWidth = value.toInt()),
+                    () {
+                      if (_originalImage != null) _compressImage();
                     },
                   ),
-                  const SizedBox(height: 8),
-                  Text('Max Width: $_maxWidth px'),
-                  Slider(
-                    value: _maxWidth.toDouble(),
-                    min: 480,
-                    max: 3840,
-                    divisions: 10,
-                    label: _maxWidth.toString(),
-                    onChanged: (value) {
-                      setState(() {
-                        _maxWidth = value.toInt();
-                      });
-                    },
-                    onChangeEnd: (value) {
-                      if (_originalImage != null) {
-                        _compressImage();
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Max Height: $_maxHeight px'),
-                  Slider(
-                    value: _maxHeight.toDouble(),
-                    min: 480,
-                    max: 2160,
-                    divisions: 10,
-                    label: _maxHeight.toString(),
-                    onChanged: (value) {
-                      setState(() {
-                        _maxHeight = value.toInt();
-                      });
-                    },
-                    onChangeEnd: (value) {
-                      if (_originalImage != null) {
-                        _compressImage();
-                      }
+                  const SizedBox(height: 16),
+                  _buildSlider(
+                    'Max Height',
+                    _maxHeight,
+                    480,
+                    2160,
+                    'px',
+                    Icons.height,
+                    (value) => setState(() => _maxHeight = value.toInt()),
+                    () {
+                      if (_originalImage != null) _compressImage();
                     },
                   ),
                 ],
@@ -302,134 +439,260 @@ class _ImageCompressorTabState extends State<ImageCompressorTab> {
             ),
           ),
 
-          if (_statusMessage != null) ...[
-            const SizedBox(height: 16),
+          const SizedBox(height: 20),
+
+          // Preview Card
+          if (_originalImage != null) ...[
             Card(
-              color: _statusMessage!.contains('Error')
-                  ? Colors.red.shade50
-                  : Colors.green.shade50,
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const Text(
+                      'Preview',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     Row(
                       children: [
-                        Icon(
-                          _statusMessage!.contains('Error')
-                              ? Icons.error_outline
-                              : Icons.check_circle_outline,
-                          color: _statusMessage!.contains('Error')
-                              ? Colors.red.shade900
-                              : Colors.green.shade900,
+                        Expanded(
+                          child: _buildImagePreview(
+                            'Original',
+                            _originalImage!,
+                            Icons.image,
+                          ),
                         ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Status',
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _isCompressing
+                              ? _buildLoadingPreview()
+                              : _compressedImage != null
+                                  ? _buildImagePreview(
+                                      'Compressed',
+                                      _compressedImage!,
+                                      Icons.compress,
+                                    )
+                                  : _buildEmptyPreview(),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _statusMessage!,
-                      style: TextStyle(
-                        color: _statusMessage!.contains('Error')
-                            ? Colors.red.shade900
-                            : Colors.green.shade900,
-                        fontFamily: 'monospace',
-                      ),
                     ),
                   ],
                 ),
               ),
             ),
           ],
-
-          if (_originalImage != null) ...[
-            const SizedBox(height: 16),
-            const Text(
-              'Comparison',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Original',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.file(
-                          _originalImage!,
-                          height: 200,
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    children: [
-                      const Text(
-                        'Compressed',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      _isCompressing
-                          ? Container(
-                              height: 200,
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Center(
-                                child: CircularProgressIndicator(),
-                              ),
-                            )
-                          : _compressedImage != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.file(
-                                    _compressedImage!,
-                                    height: 200,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                  ),
-                                )
-                              : Container(
-                                  height: 200,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey.shade200,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: const Center(
-                                    child: Text('No compressed image'),
-                                  ),
-                                ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
+    );
+  }
+
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+  }) {
+    return FilledButton.tonalIcon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+      style: FilledButton.styleFrom(
+        padding: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatItem(
+      String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSlider(
+    String label,
+    int value,
+    double min,
+    double max,
+    String unit,
+    IconData icon,
+    ValueChanged<double> onChanged,
+    VoidCallback onChangeEnd,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$value$unit',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+          ],
+        ),
+        Slider(
+          value: value.toDouble(),
+          min: min,
+          max: max,
+          divisions: ((max - min) / 10).toInt(),
+          onChanged: onChanged,
+          onChangeEnd: (_) => onChangeEnd(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImagePreview(String label, File file, IconData icon) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 16, color: Colors.grey.shade600),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: Image.file(
+              file,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoadingPreview() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.hourglass_empty, size: 16, color: Colors.grey.shade600),
+            const SizedBox(width: 4),
+            Text(
+              'Processing',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: Container(
+              color: Colors.grey.shade100,
+              child: const Center(
+                child: CircularProgressIndicator(),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyPreview() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.compress, size: 16, color: Colors.grey.shade600),
+            const SizedBox(width: 4),
+            Text(
+              'Compressed',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: Container(
+              color: Colors.grey.shade100,
+              child: Center(
+                child: Icon(
+                  Icons.image_not_supported,
+                  size: 48,
+                  color: Colors.grey.shade400,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
 // ============================================================================
-// VIDEO COMPRESSOR TAB
+// VIDEO COMPRESSOR TAB (WITHOUT VIDEO PLAYER)
 // ============================================================================
 
 class VideoCompressorTab extends StatefulWidget {
@@ -447,22 +710,29 @@ class _VideoCompressorTabState extends State<VideoCompressorTab> {
   VideoQuality _quality = VideoQuality.medium;
   bool _isCompressing = false;
   String? _statusMessage;
-  CompressionResult? _lastResult;
+  int? _originalSize;
+  int? _compressedSize;
+  int? _compressionTime;
 
   Future<void> _pickVideo(ImageSource source) async {
     try {
       final XFile? video = await widget.picker.pickVideo(
         source: source,
-        maxDuration: const Duration(minutes: 5), // Limit to 5 minutes
+        maxDuration: const Duration(minutes: 5),
       );
 
       if (video == null) return;
 
+      final file = File(video.path);
+      final size = await file.length();
+
       setState(() {
-        _originalVideo = File(video.path);
+        _originalVideo = file;
+        _originalSize = size;
         _compressedVideo = null;
+        _compressedSize = null;
+        _compressionTime = null;
         _statusMessage = null;
-        _lastResult = null;
       });
 
       await _compressVideo();
@@ -476,46 +746,42 @@ class _VideoCompressorTabState extends State<VideoCompressorTab> {
 
     setState(() {
       _isCompressing = true;
-      _statusMessage = 'Compressing video...\nThis may take a while.';
+      _statusMessage = 'Compressing video...';
     });
+
+    final stopwatch = Stopwatch()..start();
 
     try {
       final result = await MediaCompressor.compressVideo(
         VideoCompressionConfig(
           path: _originalVideo!.path,
           quality: _quality,
-       
         ),
       );
 
-      if (result.isSuccess) {
-        final originalFile = File(_originalVideo!.path);
-        final compressedFile = File(result.path!);
+      stopwatch.stop();
 
-        final originalSize = await originalFile.length();
+      if (result.isSuccess) {
+        final compressedFile = File(result.path!);
         final compressedSize = await compressedFile.length();
-        final savedPercentage = ((1 - (compressedSize / originalSize)) * 100).toStringAsFixed(1);
 
         setState(() {
           _compressedVideo = compressedFile;
-          _lastResult = result;
-          _statusMessage = 'Compression Successful!\n'
-              'Original: ${_formatBytes(originalSize)}\n'
-              'Compressed: ${_formatBytes(compressedSize)}\n'
-              'Saved: $savedPercentage%\n';
+          _compressedSize = compressedSize;
+          _compressionTime = stopwatch.elapsed.inSeconds;
+          _statusMessage = 'Compression complete!';
           _isCompressing = false;
         });
       } else {
         setState(() {
-          _statusMessage = 'Error: ${result.error!.message}\n\n'
-              'Note: Video compression is currently only supported on iOS.';
+          _statusMessage = 'Error: ${result.error!.message}';
           _isCompressing = false;
         });
       }
     } catch (e) {
+      stopwatch.stop();
       setState(() {
-        _statusMessage = 'Error: $e\n\n'
-            'Note: Video compression is currently only supported on iOS.';
+        _statusMessage = 'Error: $e';
         _isCompressing = false;
       });
     }
@@ -523,16 +789,10 @@ class _VideoCompressorTabState extends State<VideoCompressorTab> {
 
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    }
     return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
-  }
-
-  String _formatDuration(int milliseconds) {
-    final seconds = (milliseconds / 1000).floor();
-    if (seconds < 60) return '${seconds}s';
-    final minutes = (seconds / 60).floor();
-    final remainingSeconds = seconds % 60;
-    return '${minutes}m ${remainingSeconds}s';
   }
 
   void _showError(String message) {
@@ -540,93 +800,164 @@ class _VideoCompressorTabState extends State<VideoCompressorTab> {
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final savedPercentage = _originalSize != null && _compressedSize != null
+        ? ((1 - (_compressedSize! / _originalSize!)) * 100).toInt()
+        : 0;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Platform Support Warning
-          Card(
-            color: Colors.orange.shade50,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline, color: Colors.orange.shade900),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Video compression is currently supported on iOS only. Android support coming soon!',
-                      style: TextStyle(color: Colors.orange.shade900),
+          // Pick Video Buttons
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed:
+                      _isCompressing ? null : () => _pickVideo(ImageSource.camera),
+                  icon: const Icon(Icons.videocam),
+                  label: const Text('Record'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.all(16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed:
+                      _isCompressing ? null : () => _pickVideo(ImageSource.gallery),
+                  icon: const Icon(Icons.video_library),
+                  label: const Text('Gallery'),
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.all(16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
-          // Source Selection Buttons
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Select Video Source',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isCompressing ? null : () => _pickVideo(ImageSource.camera),
-                          icon: const Icon(Icons.videocam),
-                          label: const Text('Record'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.all(16),
-                          ),
+          // Stats Card
+          if (_originalSize != null) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildStatItem(
+                          'Original',
+                          _formatBytes(_originalSize!),
+                          Icons.video_file,
+                          Colors.blue,
+                        ),
+                        Container(
+                          width: 1,
+                          height: 40,
+                          color: Colors.grey.shade300,
+                        ),
+                        _buildStatItem(
+                          'Compressed',
+                          _compressedSize != null
+                              ? _formatBytes(_compressedSize!)
+                              : '-',
+                          Icons.compress,
+                          Colors.green,
+                        ),
+                        Container(
+                          width: 1,
+                          height: 40,
+                          color: Colors.grey.shade300,
+                        ),
+                        _buildStatItem(
+                          'Saved',
+                          _compressedSize != null ? '$savedPercentage%' : '-',
+                          Icons.trending_down,
+                          Colors.orange,
+                        ),
+                      ],
+                    ),
+                    if (_compressionTime != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.purple.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.timer,
+                                size: 16, color: Colors.purple.shade700),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Completed in ${_compressionTime}s',
+                              style: TextStyle(
+                                color: Colors.purple.shade700,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: _isCompressing ? null : () => _pickVideo(ImageSource.gallery),
-                          icon: const Icon(Icons.video_library),
-                          label: const Text('Gallery'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.all(16),
+                    ],
+                    if (_compressedSize != null) ...[
+                      const SizedBox(height: 16),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: 1 - (_compressedSize! / _originalSize!),
+                          minHeight: 8,
+                          backgroundColor: Colors.grey.shade200,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            savedPercentage > 50 ? Colors.green : Colors.orange,
                           ),
                         ),
                       ),
                     ],
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-
-          const SizedBox(height: 16),
+            const SizedBox(height: 20),
+          ],
 
           // Quality Selection
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
                     'Compression Quality',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   SegmentedButton<VideoQuality>(
@@ -648,32 +979,47 @@ class _VideoCompressorTabState extends State<VideoCompressorTab> {
                       ),
                     ],
                     selected: {_quality},
-                    onSelectionChanged: (Set<VideoQuality> newSelection) {
-                      setState(() {
-                        _quality = newSelection.first;
-                      });
-                      if (_originalVideo != null) {
-                        _compressVideo();
-                      }
-                    },
+                    onSelectionChanged: _isCompressing
+                        ? null
+                        : (Set<VideoQuality> newSelection) {
+                            setState(() => _quality = newSelection.first);
+                            if (_originalVideo != null) _compressVideo();
+                          },
                   ),
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
+                      color: Theme.of(context).colorScheme.surfaceVariant,
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    child: Row(
                       children: [
-                        Text(
-                          'Selected: ${_quality.name.toUpperCase()}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        Icon(
+                          _getQualityIcon(_quality),
+                          color: Theme.of(context).colorScheme.primary,
                         ),
-                        const SizedBox(height: 4),
-                        // Text('Bitrate: ${(_quality.suggestedBitrate / 1000000).toStringAsFixed(1)} Mbps'),
-                        // Text('Max Height: ${_quality.suggestedHeight}p'),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _quality.name.toUpperCase(),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                _getQualityDescription(_quality),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -682,102 +1028,88 @@ class _VideoCompressorTabState extends State<VideoCompressorTab> {
             ),
           ),
 
-          if (_statusMessage != null) ...[
-            const SizedBox(height: 16),
+          const SizedBox(height: 20),
+
+          // Status Card
+          if (_isCompressing) ...[
             Card(
-              color: _statusMessage!.contains('Error')
-                  ? Colors.red.shade50
-                  : _isCompressing
-                      ? Colors.blue.shade50
-                      : Colors.green.shade50,
+              color: Colors.blue.shade50,
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        if (_isCompressing)
-                          const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        else
-                          Icon(
-                            _statusMessage!.contains('Error')
-                                ? Icons.error_outline
-                                : Icons.check_circle_outline,
-                            color: _statusMessage!.contains('Error')
-                                ? Colors.red.shade900
-                                : Colors.green.shade900,
-                          ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Status',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ],
+                    const SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: CircularProgressIndicator(strokeWidth: 3),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 16),
                     Text(
-                      _statusMessage!,
+                      _statusMessage ?? 'Processing...',
                       style: TextStyle(
-                        color: _statusMessage!.contains('Error')
-                            ? Colors.red.shade900
-                            : _isCompressing
-                                ? Colors.blue.shade900
-                                : Colors.green.shade900,
-                        fontFamily: 'monospace',
+                        color: Colors.blue.shade700,
+                        fontWeight: FontWeight.w500,
                       ),
+                      textAlign: TextAlign.center,
                     ),
                   ],
                 ),
               ),
             ),
+            const SizedBox(height: 20),
           ],
 
-          if (_originalVideo != null) ...[
-            const SizedBox(height: 16),
+          // Video Info Card
+          if (_originalVideo != null || _compressedVideo != null) ...[
             Card(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
                       'Video Files',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 12),
-                    ListTile(
-                      leading: const Icon(Icons.video_file, color: Colors.blue),
-                      title: const Text('Original Video'),
-                      subtitle: Text(_originalVideo!.path.split('/').last),
-                      trailing: FutureBuilder<int>(
-                        future: _originalVideo!.length(),
-                        builder: (context, snapshot) {
-                          if (snapshot.hasData) {
-                            return Text(_formatBytes(snapshot.data!));
-                          }
-                          return const SizedBox.shrink();
-                        },
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    if (_originalVideo != null) ...[
+                      _buildVideoFileInfo(
+                        'Original Video',
+                        _originalVideo!,
+                        _originalSize!,
+                        Icons.video_file,
+                        Colors.blue,
+                      ),
+                      if (_compressedVideo != null) ...[
+                        const SizedBox(height: 12),
+                        const Divider(),
+                        const SizedBox(height: 12),
+                      ],
+                    ],
                     if (_compressedVideo != null) ...[
-                      const Divider(),
-                      ListTile(
-                        leading: const Icon(Icons.video_file, color: Colors.green),
-                        title: const Text('Compressed Video'),
-                        subtitle: Text(_compressedVideo!.path.split('/').last),
-                        trailing: FutureBuilder<int>(
-                          future: _compressedVideo!.length(),
-                          builder: (context, snapshot) {
-                            if (snapshot.hasData) {
-                              return Text(_formatBytes(snapshot.data!));
-                            }
-                            return const SizedBox.shrink();
-                          },
+                      CupertinoButton(
+                        onPressed: () {
+                          Navigator.push(
+  context,
+  MaterialPageRoute(
+    builder: (context) => NativeVideoPlayerScreen(
+      videoPath: _compressedVideo?.path,
+    ),
+  ),
+);
+
+                        },
+                        minSize: 0,
+                        padding: EdgeInsets.zero,
+                        child: _buildVideoFileInfo(
+                          'Compressed Video',
+                          _compressedVideo!,
+                          _compressedSize!,
+                          Icons.compress,
+                          Colors.green,
                         ),
                       ),
                     ],
@@ -789,5 +1121,115 @@ class _VideoCompressorTabState extends State<VideoCompressorTab> {
         ],
       ),
     );
+  }
+
+  Widget _buildStatItem(
+      String label, String value, IconData icon, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(height: 8),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVideoFileInfo(
+    String label,
+    File file,
+    int size,
+    IconData icon,
+    Color color,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 24),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _formatBytes(size),
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  file.path.split('/').last,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _getQualityIcon(VideoQuality quality) {
+    switch (quality) {
+      case VideoQuality.low:
+        return Icons.battery_saver;
+      case VideoQuality.medium:
+        return Icons.balance;
+      case VideoQuality.high:
+        return Icons.high_quality;
+    }
+  }
+
+  String _getQualityDescription(VideoQuality quality) {
+    switch (quality) {
+      case VideoQuality.low:
+        return '480p resolution, ~800 Kbps bitrate, max compression';
+      case VideoQuality.medium:
+        return '720p resolution, ~2 Mbps bitrate, balanced';
+      case VideoQuality.high:
+        return '1080p resolution, ~4 Mbps bitrate, best quality';
+    }
   }
 }
