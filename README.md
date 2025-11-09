@@ -8,7 +8,7 @@ See the plugin in action:
 
 | Image Compression Demo | Video Compression Demo |
 | ---------------------- | ---------------------- |
-| ![Image Compression Demo](https://github.com/Harikrishnan-cr/media_compressor/blob/v1-stable/example/lib/demo/image_compression.mp4) | ![Video Compression Demo](https://raw.githubusercontent.com/flutter/packages/refs/heads/main/packages/video_player/video_player/doc/demo_ipod.gif) |
+| ![Image Compression Demo](https://raw.githubusercontent.com/Harikrishnan-cr/media_compressor/v1-stable/example/lib/demo/image_compression.mp4) | ![Video Compression Demo](https://raw.githubusercontent.com/flutter/packages/refs/heads/main/packages/video_player/video_player/doc/demo_ipod.gif) |
 
 
 <!-- ### Image Compression Demo   |   Video Compression Demo
