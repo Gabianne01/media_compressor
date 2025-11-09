@@ -361,7 +361,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-For issues, feature requests, or questions, please file an issue on the [GitHub repository](https://github.com/yourusername/media_compressor).
+For issues, feature requests, or questions, please file an issue on the [GitHub repository](https://github.com/Harikrishnan-cr/media_compressor).
 
 ---
 
