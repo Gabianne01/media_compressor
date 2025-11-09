@@ -1,16 +1,38 @@
-## 0.0.1
+# Changelog
 
-* Initial pre-release
-* Basic image compression with quality control
-* Video compression with basic options
-* Progress tracking support
-* Android platform implementation
+All notable changes to this project will be documented in this file.
 
-## 1.0.0 [Upcoming]
+## [1.0.0] - 2025-11-09
+### Added
+- Stable release of the `media_compressor` package
+- Image compression with:
+  - Quality control (0–100)
+  - Max width / max height resizing
+  - EXIF orientation correction
+- Video compression with:
+  - Quality presets (low, medium, high)
+  - Configurable bitrate and resolution scaling
+  - Real-time progress updates (Android)
+- Cross-platform support for Android and iOS
+- Comprehensive error handling and `CompressionResult` wrapper
+- Detailed API usage documentation
+- Singleton-style access for easy usage in apps
 
-* Initial stable release
-* Image compression with quality control
-* Video compression with bitrate and resolution options
-* Batch compression support
-* Progress callbacks
-* Cross-platform support for Android and iOS
+### Changed
+- Migrated to a simplified static API (no instance setup needed)
+- Improved validation in compression configuration classes
+- Enhanced Android compression using AndroidX Media3 Transformer
+- Improved stability and output consistency across devices
+
+### Removed
+- Removed experimental batch compression
+- Removed iOS progress callbacks (Android progress retained)
+
+---
+
+## [0.0.1] - 2025-11-05
+### Added
+- Initial experimental pre-release
+- Basic image compression support
+- Basic video compression with limited configuration options
+- Early Android-only implementation

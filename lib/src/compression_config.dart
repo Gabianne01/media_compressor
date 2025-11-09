@@ -26,9 +26,9 @@ class ImageCompressionConfig {
     this.maxWidth,
     this.maxHeight,
   }) : assert(
-          quality >= 0 && quality <= 100,
-          'Quality must be between 0 and 100',
-        );
+         quality >= 0 && quality <= 100,
+         'Quality must be between 0 and 100',
+       );
 
   /// Convert configuration to a map for platform channel communication
   Map<String, dynamic> toMap() {
@@ -65,10 +65,7 @@ class VideoCompressionConfig {
 
   /// Convert configuration to a map for platform channel communication
   Map<String, dynamic> toMap() {
-    return {
-      'path': path,
-      'quality': quality.value,
-    };
+    return {'path': path, 'quality': quality.value};
   }
 
   @override

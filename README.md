@@ -10,16 +10,7 @@ See the plugin in action:
 | ---------------------- | ---------------------- |
 | <img src="https://raw.githubusercontent.com/Harikrishnan-cr/media_compressor/v1-stable/example/lib/demo/image_compression.gif" width="250"/> | <img src="https://raw.githubusercontent.com/Harikrishnan-cr/media_compressor/v1-stable/example/lib/demo/video_compression_gif.gif" width="250"/> |
 
-<!-- See the plugin in action:
 
-| Image Compression Demo | Video Compression Demo |
-| ---------------------- | ---------------------- |
-| ![Image Compression Demo](https://raw.githubusercontent.com/Harikrishnan-cr/media_compressor/v1-stable/example/lib/demo/image_compression.gif) | ![Video Compression Demo](https://raw.githubusercontent.com/flutter/packages/refs/heads/main/packages/video_player/video_player/doc/demo_ipod.gif) | -->
-
-
-<!-- ### Image Compression Demo   |   Video Compression Demo
-
-[![Image Compression Demo](https://raw.githubusercontent.com/flutter/packages/refs/heads/main/packages/video_player/video_player/doc/demo_ipod.gif) [![Video Compression Demo](https://raw.githubusercontent.com/flutter/packages/refs/heads/main/packages/video_player/video_player/doc/demo_ipod.gif)]] -->
 
 ## Features
 
