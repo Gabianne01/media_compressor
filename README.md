@@ -346,7 +346,7 @@ Both Android and iOS provide full-featured compression with their own native opt
 - ✅ EXIF orientation handling
 - ✅ Memory-efficient processing
 
-For detailed information about platform-specific implementations, advanced features, bitrates, resolutions, and capabilities, see **[PLATFORM_FEATURES.md](PLATFORM_FEATURES.md)**.
+For detailed information about platform-specific implementations, advanced features, bitrates, resolutions, and capabilities, see **[PLATFORM_FEATURES.md](https://github.com/Harikrishnan-cr/media_compressor/blob/v1-stable/PLATFORM_FEATURES.md)**.
 
 ## Contributing
 
