@@ -319,32 +319,49 @@ class NativeCompressor(private val context: Context) {
                 
                 mediaMetadataRetriever.release()
                 
-                // Safe scaling: only scale down, preserve aspect ratio,
-// and let Media3 internally choose aligned dimensions.
+               // --- Scale (only down) ---
 val scale = if (originalHeight > targetHeight) {
     targetHeight.toFloat() / originalHeight.toFloat()
 } else {
     1f
 }
 
-Log.d(TAG, "Safe scale factor: $scale (Media3 will auto-align)")
+val scaledW = (originalWidth * scale).toInt()
+val scaledH = (originalHeight * scale).toInt()
+
+Log.d(TAG, "Scale: $scale → ${scaledW}x$scaledH")
 
 val scaleEffect = ScaleAndRotateTransformation.Builder()
-    .setScale(scale, scale)   // no custom width/height
+    .setScale(scale, scale)
     .setRotationDegrees(0f)
     .build()
 
-                
-                val effects = Effects(
-                    emptyList(),
-                    listOf(scaleEffect)
-                )
-                
-                val editedMediaItem = EditedMediaItem.Builder(mediaItem)
-                    .setRemoveAudio(false)
-                    .setRemoveVideo(false)
-                    .setEffects(effects)
-                    .build()
+// --- Alignment to avoid chroma smearing ---
+val alignedW = (scaledW / 16) * 16
+val alignedH = (scaledH / 16) * 16
+
+Log.d(TAG, "Aligned to 16px: ${alignedW}x$alignedH")
+
+// --- Presentation forces a GL composite (this is what fixes smearing!) ---
+val presentation = Presentation.createForWidthAndHeight(
+    alignedW,
+    alignedH,
+    Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP
+)
+
+// --- Combine effects correctly ---
+// videoEffects = pixel-space (presentation)
+// overlayEffects = transformations (scale)
+val effects = Effects(
+    listOf(presentation),
+    listOf(scaleEffect)
+)
+
+val editedMediaItem = EditedMediaItem.Builder(mediaItem)
+    .setRemoveAudio(false)
+    .setRemoveVideo(false)
+    .setEffects(effects)
+    .build()
 
 val videoEncoderSettings = VideoEncoderSettings.Builder()
     .setBitrate(targetBitrate)
