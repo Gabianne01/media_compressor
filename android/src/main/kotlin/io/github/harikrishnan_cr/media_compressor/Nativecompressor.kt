@@ -332,6 +332,17 @@ val scaleEffect = ScaleAndRotateTransformation.Builder()
     .setScale(scale, scale)   // no custom width/height
     .setRotationDegrees(0f)
     .build()
+    
+    val effects = Effects(
+    emptyList(),             // pixel effects: none
+    listOf(scaleEffect)      // overlay/transform effects
+)
+
+val editedMediaItem = EditedMediaItem.Builder(mediaItem)
+    .setEffects(effects)
+    .setRemoveAudio(false)
+    .setRemoveVideo(false)
+    .build()
 
 
 val videoEncoderSettings = VideoEncoderSettings.Builder()
