@@ -319,25 +319,21 @@ class NativeCompressor(private val context: Context) {
                 
                 mediaMetadataRetriever.release()
                 
-                // Calculate scale factor
-                val scaleFactor = if (originalHeight > targetHeight) {
-                    targetHeight.toFloat() / originalHeight.toFloat()
-                } else {
-                    1f
-                }
-                
-                val newWidth = (originalWidth * scaleFactor).toInt()
-                val newHeight = (originalHeight * scaleFactor).toInt()
-                
-                Log.d(TAG, "Original: ${originalWidth}x${originalHeight}")
-                Log.d(TAG, "Target: ${newWidth}x${newHeight} (scale: $scaleFactor)")
-                Log.d(TAG, "Duration: ${durationMs}ms")
-                
-                // Create scaling effect
-                val scaleEffect = ScaleAndRotateTransformation.Builder()
-                    .setScale(scaleFactor, scaleFactor)
-                    .setRotationDegrees(0f)
-                    .build()
+                // Safe scaling: only scale down, preserve aspect ratio,
+// and let Media3 internally choose aligned dimensions.
+val scale = if (originalHeight > targetHeight) {
+    targetHeight.toFloat() / originalHeight.toFloat()
+} else {
+    1f
+}
+
+Log.d(TAG, "Safe scale factor: $scale (Media3 will auto-align)")
+
+val scaleEffect = ScaleAndRotateTransformation.Builder()
+    .setScale(scale, scale)   // no custom width/height
+    .setRotationDegrees(0f)
+    .build()
+
                 
                 val effects = Effects(
                     emptyList(),
