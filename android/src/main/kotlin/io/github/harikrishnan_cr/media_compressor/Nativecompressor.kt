@@ -11,6 +11,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.ScaleAndRotateTransformation
+import androidx.media3.common.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
@@ -326,16 +327,34 @@ val scale = if (originalHeight > targetHeight) {
     1f
 }
 
-Log.d(TAG, "Safe scale factor: $scale (Media3 will auto-align)")
+val scaledW = (originalWidth * scale).toInt()
+val scaledH = (originalHeight * scale).toInt()
 
+Log.d(TAG, "Scaled to: ${scaledW}x$scaledH")
+
+// --- Align to 16px (prevents Samsung chroma smear) ---
+val alignedW = (scaledW / 16) * 16
+val alignedH = (scaledH / 16) * 16
+
+Log.d(TAG, "Aligned dimensions: ${alignedW}x$alignedH")
+
+// --- Pixel-space effect (forces GL composition) ---
+val presentation = Presentation.createForWidthAndHeight(
+    alignedW,
+    alignedH,
+    Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP
+)
+
+// --- Visual transform (scale only, no width override) ---
 val scaleEffect = ScaleAndRotateTransformation.Builder()
-    .setScale(scale, scale)   // no custom width/height
+    .setScale(scale, scale)
     .setRotationDegrees(0f)
     .build()
-    
-    val effects = Effects(
-    emptyList(),             // pixel effects: none
-    listOf(scaleEffect)      // overlay/transform effects
+
+// 🔥 This is the final, correct Effects object
+val effects = Effects(
+    listOf(presentation),   // pixel-space effects
+    listOf(scaleEffect)     // overlay transformation effects
 )
 
 val editedMediaItem = EditedMediaItem.Builder(mediaItem)
