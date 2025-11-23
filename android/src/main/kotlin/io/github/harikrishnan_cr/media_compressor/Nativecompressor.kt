@@ -10,7 +10,6 @@ import androidx.exifinterface.media.ExifInterface
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.effect.Presentation
 import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.DefaultEncoderFactory
@@ -319,50 +318,21 @@ class NativeCompressor(private val context: Context) {
                 )?.toLongOrNull() ?: 0L
                 
                 mediaMetadataRetriever.release()
-                
-               // --- Scale (only down) ---
+              // Safe scaling: only scale down, preserve aspect ratio,
+// and let Media3 internally choose aligned dimensions.
 val scale = if (originalHeight > targetHeight) {
     targetHeight.toFloat() / originalHeight.toFloat()
 } else {
     1f
 }
 
-val scaledW = (originalWidth * scale).toInt()
-val scaledH = (originalHeight * scale).toInt()
-
-Log.d(TAG, "Scale: $scale → ${scaledW}x$scaledH")
+Log.d(TAG, "Safe scale factor: $scale (Media3 will auto-align)")
 
 val scaleEffect = ScaleAndRotateTransformation.Builder()
-    .setScale(scale, scale)
+    .setScale(scale, scale)   // no custom width/height
     .setRotationDegrees(0f)
     .build()
 
-// --- Alignment to avoid chroma smearing ---
-val alignedW = (scaledW / 16) * 16
-val alignedH = (scaledH / 16) * 16
-
-Log.d(TAG, "Aligned to 16px: ${alignedW}x$alignedH")
-
-// --- Presentation forces a GL composite (this is what fixes smearing!) ---
-val presentation = Presentation.createForWidthAndHeight(
-    alignedW,
-    alignedH,
-    Presentation.LAYOUT_SCALE_TO_FIT_WITH_CROP
-)
-
-// --- Combine effects correctly ---
-// videoEffects = pixel-space (presentation)
-// overlayEffects = transformations (scale)
-val effects = Effects(
-    listOf(presentation),
-    listOf(scaleEffect)
-)
-
-val editedMediaItem = EditedMediaItem.Builder(mediaItem)
-    .setRemoveAudio(false)
-    .setRemoveVideo(false)
-    .setEffects(effects)
-    .build()
 
 val videoEncoderSettings = VideoEncoderSettings.Builder()
     .setBitrate(targetBitrate)
