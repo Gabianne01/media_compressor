@@ -351,10 +351,15 @@ val scaleEffect = ScaleAndRotateTransformation.Builder()
     .setRotationDegrees(0f)
     .build()
 
-// 🔥 This is the final, correct Effects object
+val videoEffects = listOf(scaleEffect)
+val videoProcessors = listOf(presentation)
+val audioProcessors = emptyList<androidx.media3.common.audio.AudioProcessor>()
+
+// --- Build final Effects object
 val effects = Effects(
-    listOf(presentation),   // pixel-space effects
-    listOf(scaleEffect)     // overlay transformation effects
+    videoEffects,
+    audioProcessors,
+    videoProcessors
 )
 
 val editedMediaItem = EditedMediaItem.Builder(mediaItem)
